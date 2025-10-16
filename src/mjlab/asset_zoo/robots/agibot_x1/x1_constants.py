@@ -94,9 +94,9 @@ X1_ACTUATOR_R86_2 = ActuatorCfg(
     # Legs
     ".*_hip_yaw_joint",
     # Torso (3 joints)
-    "lumbar_yaw_joint",
-    "lumbar_roll_joint",
-    "lumbar_pitch_joint",
+    "waist_yaw_joint",
+    "waist_roll_joint",
+    "waist_pitch_joint",
   ],
   effort_limit=ACTUATOR_R86_2.effort_limit,
   armature=ACTUATOR_R86_2.reflected_inertia,
@@ -147,9 +147,9 @@ HOME_KEYFRAME = EntityCfg.InitialStateCfg(
   pos=(0, 0, 0.65), # Assuming a standing height of 1.0m (X1 is 130cm tall, so COM is lower)
   joint_pos={
     # Core
-    "lumbar_yaw_joint": 0.0,
-    "lumbar_roll_joint": 0.0,
-    "lumbar_pitch_joint": 0.0,
+    "waist_yaw_joint": 0.0,
+    "waist_roll_joint": 0.0,
+    "waist_pitch_joint": 0.0,
 
     # Legs (Deeper squat)
     ".*_hip_pitch_joint": 0.0,
@@ -174,9 +174,9 @@ READY_KEYFRAME = EntityCfg.InitialStateCfg(
   pos=(0, 0, 0.63), # Lowered height
   joint_pos={
     # Core
-    "lumbar_yaw_joint": 0.0,
-    "lumbar_roll_joint": 0.0,
-    "lumbar_pitch_joint": 0.0,
+    "waist_yaw_joint": 0.0,
+    "waist_roll_joint": 0.0,
+    "waist_pitch_joint": 0.0,
 
     # Legs (Deeper squat)
     ".*_hip_pitch_joint": 0.0,

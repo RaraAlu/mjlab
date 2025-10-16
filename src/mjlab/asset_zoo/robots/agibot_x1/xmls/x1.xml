@@ -43,9 +43,9 @@
 
     <!-- Meshes -->
     <mesh name="mesh_base_link_simple" file="base_link_simple.STL"/>
-    <mesh name="mesh_lumbar_yaw" file="lumbar_yaw.STL"/>
-    <mesh name="mesh_lumbar_roll" file="lumbar_roll.STL"/>
-    <mesh name="mesh_lumbar_pitch" file="lumbar_pitch.STL"/>
+    <mesh name="mesh_waist_yaw" file="waist_yaw.STL"/>
+    <mesh name="mesh_waist_roll" file="waist_roll.STL"/>
+    <mesh name="mesh_waist_pitch" file="waist_pitch.STL"/>
     <mesh name="mesh_left_shoulder_pitch" file="left_shoulder_pitch.STL"/>
     <mesh name="mesh_left_shoulder_roll" file="left_shoulder_roll.STL"/>
     <mesh name="mesh_left_shoulder_yaw" file="left_shoulder_yaw.STL"/>
@@ -89,18 +89,18 @@
       <!-- Waist Chain -->
       <body name="waist_yaw_link" pos="0.00245 0 0.115534" quat="1 0 0 -2.27456e-05">
         <inertial pos="-0.0180007 1.4e-06 0.0243298" quat="-7.72625e-06 0.78309 -2.54549e-05 0.621909" mass="0.362519" diaginertia="0.000655093 0.00045823 0.000342457"/>
-        <joint name="lumbar_yaw_joint" type="hinge" axis="0 0 1" range="-3.14 3.14"/>
-        <geom class="visual" material="x1_red" mesh="mesh_lumbar_yaw"/>
+        <joint name="waist_yaw_joint" type="hinge" axis="0 0 1" range="-3.14 3.14"/>
+        <geom class="visual" material="x1_red" mesh="mesh_waist_yaw"/>
 
         <body name="waist_roll_link" pos="0 0 0.0405" quat="0.5 0.5 -0.5 -0.5">
           <inertial pos="-0.00029919 0.0003642 -0.00019197" quat="0.773215 -0.138631 -0.0225684 0.618394" mass="0.0341207" diaginertia="5.46439e-06 4.90308e-06 4.81253e-06"/>
-          <joint name="lumbar_roll_joint" type="hinge" axis="0 0 1" range="-0.5 0.5"/>
-          <geom class="visual" material="x1_yellow" mesh="mesh_lumbar_roll"/>
+          <joint name="waist_roll_joint" type="hinge" axis="0 0 1" range="-0.5 0.5"/>
+          <geom class="visual" material="x1_yellow" mesh="mesh_waist_roll"/>
 
           <body name="torso_link" pos="0 0 0" quat="0.707107 0 0.707107 0">
             <inertial pos="-0.000617851 0.206789 -0.00114246" quat="0.70235 0.7111 -0.0266182 -0.0182289" mass="9.08107" diaginertia="0.154848 0.118223 0.0621153"/>
-            <joint name="lumbar_pitch_joint" type="hinge" axis="0 0 -1" range="-0.3 1.57"/>
-            <geom class="visual" material="x1_green" mesh="mesh_lumbar_pitch"/>
+            <joint name="waist_pitch_joint" type="hinge" axis="0 0 -1" range="-0.3 1.57"/>
+            <geom class="visual" material="x1_green" mesh="mesh_waist_pitch"/>
             <geom name="torso_collision" class="collision" size="0.09" fromto="0.01 0 0.08 0.01 0.4 0.08"/>
             <site name="imu_in_torso" size="0.01" pos="-0.03959 -0.00224 0.14792"/>
 
