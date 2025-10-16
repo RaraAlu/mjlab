@@ -18,7 +18,7 @@ from mjlab.utils.spec_config import ActuatorCfg, CollisionCfg
 ##
 
 X1_XML: Path = (
-  MJLAB_SRC_PATH / "asset_zoo" / "robots" / "x1" / "xmls" / "x1.xml"
+  MJLAB_SRC_PATH / "asset_zoo" / "robots" / "agibot_x1" / "xmls" / "x1.xml"
 )
 assert X1_XML.exists()
 
