@@ -10,6 +10,11 @@ from mjlab.tasks.velocity.velocity_env_cfg import (
 from mjlab.utils.spec_config import ContactSensorCfg
 
 
+
+from mjlab.tasks.velocity import mdp
+from mjlab.managers.manager_term_config import RewardTermCfg as RewardTerm
+from mjlab.managers.manager_term_config import term
+
 @dataclass
 class AgibotX1RoughEnvCfg(LocomotionVelocityEnvCfg):
   def __post_init__(self):
@@ -65,7 +70,40 @@ class AgibotX1RoughEnvCfg(LocomotionVelocityEnvCfg):
     self.commands.twist.viz.z_offset = 0.75
 
     self.curriculum.command_vel = None
-
+    
+    self._add_x1_rewards()
+  
+  def _add_x1_rewards(self):
+    """添加 AgibotX1 特有的奖励函数。"""
+    x1_rewards = {
+      "foot_clearance": {
+        "func": mdp.feet_air_time,
+        "weight": 0.25,
+        "params": {
+          "asset_name": "robot",
+          "sensor_names": ["left_ankle_roll_link", "right_ankle_roll_link"],
+          "threshold_min": 0.1,
+          "threshold_max": 0.5,
+          "command_name": "twist",
+          "command_threshold": 0.1,
+        }
+      },
+      "feet_slide": {
+        "func": mdp.feet_slide,
+        "weight": -0.5,
+        "params": {
+          "asset_name": "robot",
+          "sensor_names": ["left_foot_ground_contact", "right_foot_ground_contact"],
+        }
+      },
+    }
+    
+    for name, config in x1_rewards.items():
+      setattr(
+        self.rewards,
+        name,
+        term(RewardTerm, **config)
+      )
 
 @dataclass
 class AgibotX1RoughEnvCfg_PLAY(AgibotX1RoughEnvCfg):
