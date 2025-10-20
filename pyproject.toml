@@ -46,6 +46,7 @@ dependencies = [
     "tensordict",
     "rsl-rl-lib",
     "tensorboard>=2.20.0",
+    "pygame>=2.6.1",
 ]
 
 [project.urls]
@@ -67,8 +68,8 @@ cu12 = ["torch>=2.7.0"]
 
 [project.scripts]
 train = "mjlab.scripts.train:main"
-play = "mjlab.scripts.play:main"
-# play = "mjlab.scripts.play_joystick:main"
+# play = "mjlab.scripts.play:main"
+play = "mjlab.scripts.play_joystick:main"
 demo = "mjlab.scripts.demo:main"
 list_envs = "mjlab.scripts.list_envs:main"
 
