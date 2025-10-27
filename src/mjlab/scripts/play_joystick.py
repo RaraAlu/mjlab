@@ -23,9 +23,9 @@ import mjlab.tasks  # 触发任务注册
 
 # 🆕 导入模块化的手柄控制
 from mjlab.utils.joystick import (
-    PolicyJoystick,
-    JoystickConfig,
-    print_joystick_test_prompt,
+  PolicyJoystick,
+  JoystickConfig,
+  print_joystick_test_prompt,
 )
 
 
