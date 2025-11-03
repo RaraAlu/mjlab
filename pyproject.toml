@@ -55,27 +55,7 @@ dependencies = [
 "Source" = "https://github.com/mujocolab/mjlab"
 
 [project.scripts]
-# train = "mjlab.scripts.train:main"
-play = "mjlab.scripts.play_joystick:main"
-demo = "mjlab.scripts.demo:main"
-list_envs = "mjlab.scripts.list_envs:main"
-viz-nan = "mjlab.scripts.nan_viz:main"
-
-[dependency-groups]
-dev = [
-  "ipdb>=0.13.13",
-  "pre-commit>=4.3.0",
-  "pyright>=1.1.407",
-  "pytest>=8.4.2",
-  "ruff>=0.14.3",
-  "ty>=0.0.1a23",
-]
-cpu = ["torch>=2.7.0"]
-cu128 = ["torch>=2.7.0"]
-
-[project.scripts]
 train = "mjlab.scripts.train:main"
-# play = "mjlab.scripts.play:main"
 play = "mjlab.scripts.play_joystick:main"
 demo = "mjlab.scripts.demo:main"
 list_envs = "mjlab.scripts.list_envs:main"
@@ -92,6 +72,7 @@ dev = [
 ]
 cpu = ["torch>=2.7.0"]
 cu128 = ["torch>=2.7.0"]
+
 
 [tool.uv]
 default-groups = ["dev", "cu128"]

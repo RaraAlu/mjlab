@@ -1,53 +1,69 @@
 from dataclasses import dataclass, replace
 
 from mjlab.asset_zoo.robots.agibot_x1.x1_constants import (
-  X1_ACTION_SCALE,
-  X1_ROBOT_CFG,
+    X1_ACTION_SCALE,
+    X1_ROBOT_CFG,
 )
+from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.tasks.velocity.velocity_env_cfg import (
-  LocomotionVelocityEnvCfg,
+    LocomotionVelocityEnvCfg,
 )
-from mjlab.utils.spec_config import ContactSensorCfg
 
-
-
-from mjlab.tasks.velocity import mdp
-from mjlab.managers.manager_term_config import RewardTermCfg as RewardTerm
-from mjlab.managers.manager_term_config import term
 
 @dataclass
 class AgibotX1RoughEnvCfg(LocomotionVelocityEnvCfg):
   def __post_init__(self):
     super().__post_init__()
 
-    foot_contact_sensors = [
-      ContactSensorCfg(
-        name=f"{side}_foot_ground_contact",
-        body1=f"{side}_ankle_roll_link",
-        body2="terrain",
-        num=1,
-        data=("found",),
-        reduce="netforce",
-      )
-      for side in ["left", "right"]
-    ]
-    g1_cfg = replace(X1_ROBOT_CFG, sensors=tuple(foot_contact_sensors))
-    self.scene.entities = {"robot": g1_cfg}
+    self.scene.entities = {"robot": replace(X1_ROBOT_CFG)}
 
-    sensor_names = ["left_foot_ground_contact", "right_foot_ground_contact"]
+    # Constants.
+    site_names = ["left_foot", "right_foot"]
     geom_names = []
     for i in range(1, 8):
       geom_names.append(f"left_foot{i}_collision")
     for i in range(1, 8):
       geom_names.append(f"right_foot{i}_collision")
+    target_foot_height = 0.15
 
-    self.events.foot_friction.params["asset_cfg"].geom_names = geom_names
+    # Sensors.
+    feet_grund_cfg = ContactSensorCfg(
+        name="feet_ground_contact",
+        primary=ContactMatch(
+            mode="subtree",
+            pattern=r"^(left_ankle_roll_link|right_ankle_roll_link)$",
+            entity="robot",
+        ),
+        secondary=ContactMatch(mode="body", pattern="terrain"),
+        fields=("found", "force"),
+        reduce="netforce",
+        num_slots=1,
+        track_air_time=True,
+    )
 
+    self_collision_cfg = ContactSensorCfg(
+        name="self_collision",
+        primary=ContactMatch(mode="subtree", pattern="pelvis", entity="robot"),
+        secondary=ContactMatch(
+            mode="subtree", pattern="pelvis", entity="robot"),
+        fields=("found",),
+        reduce="none",
+        num_slots=1,
+    )
+    self.scene.sensors = (feet_grund_cfg, self_collision_cfg)
+
+    # Actions.
     self.actions.joint_pos.scale = X1_ACTION_SCALE
 
-    self.rewards.air_time.params["sensor_names"] = sensor_names
+    # Event.
+    self.events.foot_friction.params["asset_cfg"].geom_names = geom_names
 
-    self.rewards.pose.params["std"] = {
+    # Rewards.
+    self.rewards.upright.params["asset_cfg"].body_names = ["torso_link"]
+
+    self.rewards.pose.params["std_standing"] = {".*": 0.05}
+
+    self.rewards.pose.params["std_walking"] = {
       # Lower body.
       r".*hip_pitch.*": 0.3,
       r".*hip_roll.*": 0.15,
@@ -66,44 +82,41 @@ class AgibotX1RoughEnvCfg(LocomotionVelocityEnvCfg):
       r".*elbow.*": 0.25,
     }
 
-    self.viewer.body_name = "torso_link"
-    self.commands.twist.viz.z_offset = 1.0
-
-    self.curriculum.command_vel = None
-    
-    self._add_x1_rewards()
-  
-  def _add_x1_rewards(self):
-    """添加 AgibotX1 特有的奖励函数。"""
-    x1_rewards = {
-      "foot_clearance": {
-        "func": mdp.feet_air_time,
-        "weight": 0.25,
-        "params": {
-          "asset_name": "robot",
-          "sensor_names": ["left_ankle_roll_link", "right_ankle_roll_link"],
-          "threshold_min": 0.1,
-          "threshold_max": 0.5,
-          "command_name": "twist",
-          "command_threshold": 0.1,
-        }
-      },
-      "feet_slide": {
-        "func": mdp.feet_slide,
-        "weight": -0.5,
-        "params": {
-          "asset_name": "robot",
-          "sensor_names": ["left_foot_ground_contact", "right_foot_ground_contact"],
-        }
-      },
+    self.rewards.pose.params["std_running"] = {
+      # Lower body.
+      r".*hip_pitch.*": 0.5,
+      r".*hip_roll.*": 0.2,
+      r".*hip_yaw.*": 0.2,
+      r".*knee.*": 0.6,
+      r".*ankle_pitch.*": 0.35,
+      r".*ankle_roll.*": 0.15,
+      # Waist.
+      r".*waist_yaw.*": 0.3,
+      r".*waist_roll.*": 0.1,
+      r".*waist_pitch.*": 0.2,
+      # Arms.
+      r".*shoulder_pitch.*": 0.5,
+      r".*shoulder_roll.*": 0.2,
+      r".*shoulder_yaw.*": 0.15,
+      r".*elbow.*": 0.35,
     }
-    
-    for name, config in x1_rewards.items():
-      setattr(
-        self.rewards,
-        name,
-        term(RewardTerm, **config)
-      )
+
+    self.rewards.foot_clearance.params["asset_cfg"].site_names = site_names
+    self.rewards.foot_swing_height.params["asset_cfg"].site_names = site_names
+    self.rewards.foot_slip.params["asset_cfg"].site_names = site_names
+    self.rewards.foot_swing_height.params["target_height"] = target_foot_height
+    self.rewards.foot_clearance.params["target_height"] = target_foot_height
+    self.rewards.body_ang_vel.params["asset_cfg"].body_names = ["torso_link"]
+
+    # Observations.
+    self.observations.critic.foot_height.params["asset_cfg"].site_names = site_names
+
+    # Terminations.
+    self.terminations.illegal_contact = None
+
+    self.viewer.body_name = "torso_link"
+    self.commands.twist.viz.z_offset = 1.15
+
 
 @dataclass
 class AgibotX1RoughEnvCfg_PLAY(AgibotX1RoughEnvCfg):

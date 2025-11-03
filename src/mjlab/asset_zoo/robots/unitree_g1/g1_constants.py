@@ -144,7 +144,8 @@ G1_ACTUATOR_5020 = ActuatorCfg(
   damping=DAMPING_5020,
 )
 G1_ACTUATOR_7520_14 = ActuatorCfg(
-  joint_names_expr=[".*_hip_pitch_joint", ".*_hip_yaw_joint", "waist_yaw_joint"],
+  joint_names_expr=[".*_hip_pitch_joint",
+    ".*_hip_yaw_joint", "waist_yaw_joint"],
   effort_limit=ACTUATOR_7520_14.effort_limit,
   armature=ACTUATOR_7520_14.reflected_inertia,
   stiffness=STIFFNESS_7520_14,
