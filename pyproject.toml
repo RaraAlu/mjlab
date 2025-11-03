@@ -13,46 +13,46 @@ authors = [
 ]
 keywords = ["mujoco",  "mujoco-warp", "simulation", "reinforcement-learning", "robotics"]
 classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11", 
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3 :: Only",
-    "Typing :: Typed",
-    "Environment :: GPU :: NVIDIA CUDA",
-    "Topic :: Scientific/Engineering",
-    "Natural Language :: English",
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3 :: Only",
+  "Typing :: Typed",
+  "Environment :: GPU :: NVIDIA CUDA",
+  "Topic :: Scientific/Engineering",
+  "Natural Language :: English",
 ]
 description = "Isaac Lab API, powered by MuJoCo-Warp, for RL and robotics research."
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    "gymnasium==1.2.1",
-    "prettytable",
-    "tqdm",
-    "tyro",
-    "torch>=2.7.0",
-    "warp-lang",
-    "mujoco-warp",
-    "mujoco",
-    "trimesh>=4.8.3",
-    "viser>=1.0.15",
-    "moviepy",
-    "tensordict",
-    "rsl-rl-lib",
-    "tensorboard>=2.20.0",
-    "onnxscript>=0.5.4",
-    "wandb>=0.22.3",
-    "pygame>=2.6.1",
+  "gymnasium==1.2.1",
+  "prettytable",
+  "tqdm",
+  "tyro",
+  "torch>=2.7.0",
+  "warp-lang",
+  "mujoco-warp",
+  "mujoco",
+  "trimesh>=4.8.3",
+  "viser>=1.0.15",
+  "moviepy",
+  "tensordict",
+  "rsl-rl-lib",
+  "tensorboard>=2.20.0",
+  "onnxscript>=0.5.4",
+  "wandb>=0.22.3",
+  "pygame>=2.6.1",
 ]
 
 [project.urls]
-  "Bug Reports" = "https://github.com/mujocolab/mjlab/issues"
-  "Source" = "https://github.com/mujocolab/mjlab"
+"Bug Reports" = "https://github.com/mujocolab/mjlab/issues"
+"Source" = "https://github.com/mujocolab/mjlab"
 
 [project.scripts]
 # train = "mjlab.scripts.train:main"
@@ -95,12 +95,7 @@ cu128 = ["torch>=2.7.0"]
 
 [tool.uv]
 default-groups = ["dev", "cu128"]
-conflicts = [
-  [
-    { group = "cpu" },
-    { group = "cu128" },
-  ],
-]
+conflicts = [[{ group = "cpu" }, { group = "cu128" }]]
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
@@ -126,7 +121,7 @@ url = "https://py.mujoco.org"
 explicit = true
 
 [tool.uv.sources]
-mujoco-warp = { git = "https://github.com/google-deepmind/mujoco_warp", rev = "e605c406363805d949b75d50dd5ffb3d79bc3f70"}
+mujoco-warp = { git = "https://github.com/google-deepmind/mujoco_warp", rev = "e605c406363805d949b75d50dd5ffb3d79bc3f70" }
 warp-lang = { index = "nvidia", marker = "sys_platform != 'darwin'" }
 mujoco = { index = "mujoco" }
 torch = [
@@ -135,12 +130,9 @@ torch = [
 ]
 
 [tool.ruff]
-src = ["src"]  # Helpful for recognizing first-party imports.
+src = ["src"]                                  # Helpful for recognizing first-party imports.
 indent-width = 2
-exclude = [
-  "src/mjlab/third_party",
-  "typings",
-]
+exclude = ["src/mjlab/third_party", "typings"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "B"]
@@ -158,7 +150,5 @@ include = ["src", "tests"]
 exclude = ["src/mjlab/third_party", "typings"]
 
 [tool.pytest.ini_options]
-markers = [
-  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 addopts = "--strict-markers"
