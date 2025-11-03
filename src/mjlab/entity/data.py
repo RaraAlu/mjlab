@@ -166,6 +166,17 @@ class EntityData:
     global_ctrl_ids = self.indexing.ctrl_ids[local_ctrl_ids]
     self.data.ctrl[env_ids, global_ctrl_ids] = ctrl
 
+  def write_mocap_pose(
+    self, pose: torch.Tensor, env_ids: torch.Tensor | slice | None = None
+  ) -> None:
+    if self.indexing.mocap_id is None:
+      raise ValueError("Cannot write mocap pose for non-mocap entity.")
+    assert pose.shape[-1] == self.ROOT_POSE_DIM
+
+    env_ids = self._resolve_env_ids(env_ids)
+    self.data.mocap_pos[env_ids, self.indexing.mocap_id] = pose[:, 0:3].unsqueeze(1)
+    self.data.mocap_quat[env_ids, self.indexing.mocap_id] = pose[:, 3:7].unsqueeze(1)
+
   def clear_state(self, env_ids: torch.Tensor | slice | None = None) -> None:
     # Reset external wrenches on bodies and DoFs.
     env_ids = self._resolve_env_ids(env_ids)
@@ -341,14 +352,6 @@ class EntityData:
   def generalized_force(self) -> torch.Tensor:
     """Generalized forces applied to the DoFs. Shape (num_envs, nv)."""
     return self.data.qfrc_applied[:, self.indexing.free_joint_v_adr]
-
-  @property
-  def sensor_data(self) -> dict[str, torch.Tensor]:
-    """Sensor data. The number of keys is equal to model.nsensor."""
-    sensor_data = {}
-    for name, indices in self.indexing.sensor_adr.items():
-      sensor_data[name] = self.data.sensordata[:, indices]
-    return sensor_data
 
   # Pose and velocity component accessors.
 

@@ -1,4 +1,4 @@
-![Project banner](docs/mjlab-banner.jpg)
+![Project banner](docs/static/mjlab-banner.jpg)
 
 # mjlab
 
@@ -51,6 +51,8 @@ uv run demo
 ```bash
 uv add mjlab "mujoco-warp @ git+https://github.com/google-deepmind/mujoco_warp@486642c3fa262a989b482e0e506716d5793d61a9"
 ```
+
+A Dockerfile is also provided.
 
 For full setup instructions, see the [Installation Guide](docs/installation_guide.md).
 
@@ -135,7 +137,8 @@ uv run play Mjlab-Your-Task-Id --agent random  # Sends uniform random actions.
 Run tests:
 
 ```bash
-make test
+make test          # Run all tests
+make test-fast     # Skip slow integration tests
 ```
 
 Format code:

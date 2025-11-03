@@ -6,7 +6,7 @@ Adapted from an MJX visualizer by Chung Min Kim: https://github.com/chungmin99/
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Literal, Optional
+from typing import Optional
 
 import mujoco
 import numpy as np
@@ -14,12 +14,17 @@ import trimesh
 import trimesh.visual
 import viser
 import viser.transforms as vtf
-from mujoco import mj_id2name, mjtGeom, mjtObj  # type: ignore
+from mujoco import mj_id2name, mjtGeom, mjtObj
 from typing_extensions import override
 
 from mjlab.sim.sim import Simulation
 from mjlab.viewer.base import BaseViewer, EnvProtocol, PolicyProtocol, VerbosityLevel
-from mjlab.viewer.viser_conversions import mujoco_mesh_to_trimesh
+from mjlab.viewer.viser_conversions import (
+  get_body_name,
+  is_fixed_body,
+  merge_geoms,
+  rotation_matrix_from_vectors,
+)
 from mjlab.viewer.viser_reward_plotter import ViserRewardPlotter
 from mjlab.viewer.viser_visualizer import ViserDebugVisualizer
 
@@ -45,9 +50,9 @@ class ViserViewer(BaseViewer):
     self._fixed_bodies_frame = self._server.scene.add_frame(
       "/fixed_bodies", show_axes=False
     )
-    # Separate handle storage for visual and collision meshes
-    self._mesh_visual_handles: dict[int, viser.BatchedGlbHandle] | None = None
-    self._mesh_collision_handles: dict[int, viser.BatchedGlbHandle] | None = None
+    # Handle storage for visual meshes per geom group
+    # Key: (body_id, group_id), Value: handle
+    self._mesh_handles_by_group: dict[tuple[int, int], viser.BatchedGlbHandle] = {}
     # Contact visualization handles
     self._contact_point_handle: viser.BatchedMeshHandle | None = None
     self._contact_force_shaft_handle: viser.BatchedMeshHandle | None = None
@@ -65,6 +70,9 @@ class ViserViewer(BaseViewer):
     self._env_idx = self.cfg.env_idx
     self._show_only_selected_env = False
     self._show_debug_vis = True
+
+    # Geom group visibility (match MuJoCo default: groups 0,1,2 visible)
+    self._geom_groups_visible = [True, True, True, False, False, False]
 
     # Set up lighting.
     self._server.scene.configure_environment_map(environment_intensity=0.8)
@@ -123,10 +131,6 @@ class ViserViewer(BaseViewer):
 
       # Visualization settings
       with self._server.gui.add_folder("Visualization"):
-        cb_visual = self._server.gui.add_checkbox("Visual geom", initial_value=True)
-        cb_collision = self._server.gui.add_checkbox(
-          "Collision geom", initial_value=False
-        )
         slider_fov = self._server.gui.add_slider(
           "FOV (°)",
           min=20,
@@ -135,29 +139,6 @@ class ViserViewer(BaseViewer):
           initial_value=90,
           hint="Vertical FOV of viewer camera, in degrees.",
         )
-
-        @cb_visual.on_update
-        def _(_) -> None:
-          if cb_visual.value:
-            self._ensure_visual_handles_exist()
-
-          if self._mesh_visual_handles is not None:
-            for handle in self._mesh_visual_handles.values():
-              handle.visible = cb_visual.value
-
-        @cb_collision.on_update
-        def _(_) -> None:
-          visibility = cb_collision.value
-          if visibility:
-            self._ensure_collision_handles_exist()
-
-          if self._mesh_collision_handles is not None:
-            for handle in self._mesh_collision_handles.values():
-              # If hiding meshes: throw them off the screen, because when
-              # they're shown again the current positions will be outdated.
-              if not visibility:
-                handle.batched_positions = handle.batched_positions - 2000.0
-              handle.visible = visibility
 
         # Update FOV when a new client connects.
         @slider_fov.on_update
@@ -337,6 +318,25 @@ class ViserViewer(BaseViewer):
         ]
         self._reward_plotter = ViserRewardPlotter(self._server, term_names)
 
+    # Group enable tab
+    with tabs.add_tab("Group enable", icon=viser.Icon.EYE):
+      group_checkboxes = []
+      for i in range(6):
+        cb = self._server.gui.add_checkbox(
+          f"Group {i}",
+          initial_value=self._geom_groups_visible[i],
+          hint=f"Show/hide geoms in group {i}",
+        )
+        group_checkboxes.append(cb)
+
+        @cb.on_update
+        def _(event, group_idx=i) -> None:
+          self._geom_groups_visible[group_idx] = event.target.value
+          # Toggle visibility of handles for this group
+          for (_body_id, group_id), handle in self._mesh_handles_by_group.items():
+            if group_id == group_idx:
+              handle.visible = event.target.value
+
     sim = self.env.unwrapped.sim
     assert isinstance(sim, Simulation)
 
@@ -363,151 +363,101 @@ class ViserViewer(BaseViewer):
 
     for body_id in all_bodies:
       # Get body name
-      body_name = mj_id2name(mj_model, mjtObj.mjOBJ_BODY, body_id)
-      if not body_name:
-        body_name = f"body_{body_id}"
+      body_name = get_body_name(mj_model, body_id)
 
       # Fixed world geometry. We'll assume this is shared between all
       # environments.
-      if mj_model.body_dofnum[body_id] == 0 and mj_model.body_parentid[body_id] == 0:
-        for body_geoms_dict, visual_or_collision in [
-          (body_geoms_visual, "visual"),
-          (body_geoms_collision, "collision"),
-        ]:
-          if body_id not in body_geoms_dict:
-            continue
+      if is_fixed_body(mj_model, body_id):
+        # Create both visual and collision geoms for fixed bodies (terrain, floor, etc.)
+        # but show them all since they're static
+        all_geoms = []
+        if body_id in body_geoms_visual:
+          all_geoms.extend(body_geoms_visual[body_id])
+        if body_id in body_geoms_collision:
+          all_geoms.extend(body_geoms_collision[body_id])
 
-          # Iterate over geoms.
-          nonplane_geom_ids: list[int] = []
-          for geom_id in body_geoms_dict[body_id]:
-            geom_type = mj_model.geom_type[geom_id]
-            # Add plane geoms as infinite grids.
-            if geom_type == mjtGeom.mjGEOM_PLANE:
-              geom_id = body_geoms_dict[body_id][0]
-              geom_type = mj_model.geom_type[geom_id]
-              if geom_type == mjtGeom.mjGEOM_PLANE:
-                geom_name = mj_id2name(mj_model, mjtObj.mjOBJ_GEOM, geom_id)
-                self._server.scene.add_grid(
-                  f"/fixed_bodies/{body_name}/{geom_name}/{visual_or_collision}",
-                  # For infinite grids in viser 1.0.10, the width and height
-                  # parameters determined the region of the grid that can
-                  # receive shadows. We'll just make this really big for now.
-                  # In a future release of Viser these two args should ideally be
-                  # unnecessary.
-                  width=2000.0,
-                  height=2000.0,
-                  infinite_grid=True,
-                  fade_distance=50.0,
-                  shadow_opacity=0.2,
-                  position=mj_model.geom_pos[geom_id],
-                  wxyz=mj_model.geom_quat[geom_id],
-                )
-                continue
-            else:
-              nonplane_geom_ids.append(geom_id)
+        if not all_geoms:
+          continue
 
-          # Handle non-plane geoms later.
-          if len(nonplane_geom_ids) > 0:
-            # geom is visible if it is a terrain or a visual geom
-            visible = (body_name == "terrain") or (visual_or_collision == "visual")
-            self._server.scene.add_mesh_trimesh(
-              f"/fixed_bodies/{body_name}/{visual_or_collision}",
-              self._merge_geoms(mj_model, nonplane_geom_ids),
-              cast_shadow=False,
-              receive_shadow=0.2,
-              position=mj_model.body(body_id).pos,
-              wxyz=mj_model.body(body_id).quat,
-              visible=visible,
+        # Iterate over geoms.
+        nonplane_geom_ids: list[int] = []
+        for geom_id in all_geoms:
+          geom_type = mj_model.geom_type[geom_id]
+          # Add plane geoms as infinite grids.
+          if geom_type == mjtGeom.mjGEOM_PLANE:
+            geom_name = mj_id2name(mj_model, mjtObj.mjOBJ_GEOM, geom_id)
+            self._server.scene.add_grid(
+              f"/fixed_bodies/{body_name}/{geom_name}",
+              # For infinite grids in viser 1.0.10, the width and height
+              # parameters determined the region of the grid that can
+              # receive shadows. We'll just make this really big for now.
+              # In a future release of Viser these two args should ideally be
+              # unnecessary.
+              width=2000.0,
+              height=2000.0,
+              infinite_grid=True,
+              fade_distance=50.0,
+              shadow_opacity=0.2,
+              position=mj_model.geom_pos[geom_id],
+              wxyz=mj_model.geom_quat[geom_id],
             )
+          else:
+            nonplane_geom_ids.append(geom_id)
 
-    # Create visual handles by default on startup
-    self._ensure_visual_handles_exist()
+        # Handle non-plane geoms.
+        if len(nonplane_geom_ids) > 0:
+          self._server.scene.add_mesh_trimesh(
+            f"/fixed_bodies/{body_name}",
+            merge_geoms(mj_model, nonplane_geom_ids),
+            cast_shadow=False,
+            receive_shadow=0.2,
+            position=mj_model.body(body_id).pos,
+            wxyz=mj_model.body(body_id).quat,
+            visible=True,
+          )
 
-  def _merge_geoms(self, mj_model, geom_indices: list[int]) -> trimesh.Trimesh:
-    """Merge multiple geoms into a single trimesh."""
-    meshes_to_concat = []
-    for geom_id in geom_indices:
-      geom_name = mj_id2name(mj_model, mjtObj.mjOBJ_GEOM, geom_id)
-      if not geom_name:
-        geom_name = f"geom_{geom_id}"
+    # Create mesh handles per geom group on startup
+    self._create_mesh_handles_by_group()
 
-      # Get geom type
-      geom_type = mj_model.geom_type[geom_id]
-
-      # Create or get mesh for this geom
-      if geom_type == mjtGeom.mjGEOM_MESH:
-        mesh = mujoco_mesh_to_trimesh(mj_model, geom_id, verbose=False)
-      else:
-        mesh = self._create_mesh(mj_model, geom_id)
-
-      # Transform mesh to geom's local pose relative to body
-      pos = mj_model.geom_pos[geom_id]
-      quat = mj_model.geom_quat[geom_id]  # (w, x, y, z)
-
-      # Apply transformation to mesh
-      transform = np.eye(4)
-      transform[:3, :3] = vtf.SO3(quat).as_matrix()
-      transform[:3, 3] = pos
-      mesh.apply_transform(transform)
-
-      meshes_to_concat.append(mesh)
-
-    if len(meshes_to_concat) == 1:
-      combined_mesh = meshes_to_concat[0]
-    else:
-      combined_mesh = trimesh.util.concatenate(meshes_to_concat)
-    return combined_mesh
-
-  def _create_mesh_handles(
-    self, mesh_type: Literal["visual", "collision"], visible: bool
-  ) -> dict[int, viser.BatchedGlbHandle]:
-    """Create mesh handles for either visual or collision geometry.
-
-    Args:
-      mesh_type: Either "visual" or "collision"
-      visible: Whether the meshes should be initially visible
-
-    Returns:
-      Dictionary mapping body_id to handles
-    """
+  def _create_mesh_handles_by_group(self) -> None:
+    """Create mesh handles for each geom group separately to allow independent toggling."""
     sim = self.env.unwrapped.sim
     assert isinstance(sim, Simulation)
     mj_model = sim.mj_model
 
-    # Group geoms by body
-    body_geoms: dict[int, list[int]] = {}
+    # Group geoms by (body_id, group_id)
+    body_group_geoms: dict[tuple[int, int], list[int]] = {}
 
     for i in range(mj_model.ngeom):
       body_id = mj_model.geom_bodyid[i]
-      is_collision = mj_model.geom_contype[i] != 0 or mj_model.geom_conaffinity[i] != 0
 
-      # Add geom to body's list if it matches the type we're looking for
-      if (mesh_type == "collision" and is_collision) or (
-        mesh_type == "visual" and not is_collision
-      ):
-        if body_id not in body_geoms:
-          body_geoms[body_id] = []
-        body_geoms[body_id].append(i)
+      # Skip fixed world geometry
+      if is_fixed_body(mj_model, body_id):
+        continue
 
-    handles = {}
+      geom_group = mj_model.geom_group[i]
+      key = (body_id, geom_group)
+
+      if key not in body_group_geoms:
+        body_group_geoms[key] = []
+      body_group_geoms[key].append(i)
+
+    # Create handles for each (body, group) combination
     with self._server.atomic():
-      for body_id, geom_indices in body_geoms.items():
-        # Skip fixed world geometry
-        if mj_model.body_dofnum[body_id] == 0 and mj_model.body_parentid[body_id] == 0:
-          continue
-
+      for (body_id, group_id), geom_indices in body_group_geoms.items():
         # Get body name
-        body_name = mj_id2name(mj_model, mjtObj.mjOBJ_BODY, body_id)
-        if not body_name:
-          body_name = f"body_{body_id}"
+        body_name = get_body_name(mj_model, body_id)
 
         # Merge geoms into a single mesh
-        mesh = self._merge_geoms(mj_model, geom_indices)
+        mesh = merge_geoms(mj_model, geom_indices)
         lod_ratio = 1000.0 / mesh.vertices.shape[0]
+
+        # Check if this group should be visible
+        visible = group_id < 6 and self._geom_groups_visible[group_id]
 
         # Create handle
         handle = self._server.scene.add_batched_meshes_trimesh(
-          f"/bodies/{body_name}/{mesh_type}",
+          f"/bodies/{body_name}/group{group_id}",
           mesh,
           batched_wxyzs=np.array([1.0, 0.0, 0.0, 0.0])[None].repeat(
             self._batch_size, axis=0
@@ -518,23 +468,7 @@ class ViserViewer(BaseViewer):
           lod=((2.0, lod_ratio),) if lod_ratio < 0.5 else "off",
           visible=visible,
         )
-        handles[body_id] = handle
-
-    return handles
-
-  def _ensure_visual_handles_exist(self) -> None:
-    """Create visual mesh handles if they don't exist yet."""
-    if self._mesh_visual_handles is not None:
-      return  # Already created
-
-    self._mesh_visual_handles = self._create_mesh_handles("visual", visible=True)
-
-  def _ensure_collision_handles_exist(self) -> None:
-    """Create collision mesh handles if they don't exist yet."""
-    if self._mesh_collision_handles is not None:
-      return  # Already created
-
-    self._mesh_collision_handles = self._create_mesh_handles("collision", visible=True)
+        self._mesh_handles_by_group[(body_id, group_id)] = handle
 
   @override
   def sync_env_to_viewer(self) -> None:
@@ -649,10 +583,13 @@ class ViserViewer(BaseViewer):
     needs_mj_forward = self._show_contact_points or self._show_contact_forces
 
     if needs_mj_forward:
-      # Copy qpos/qvel to mj_data and run forward
+      # Copy qpos/qvel and mocap data to mj_data and run forward
       mj_data = sim.mj_data
       mj_data.qpos[:] = wp_data.qpos.numpy()[self._env_idx]
       mj_data.qvel[:] = wp_data.qvel.numpy()[self._env_idx]
+      if mj_model.nmocap > 0:
+        mj_data.mocap_pos[:] = wp_data.mocap_pos.numpy()[self._env_idx]
+        mj_data.mocap_quat[:] = wp_data.mocap_quat.numpy()[self._env_idx]
       mujoco.mj_forward(mj_model, mj_data)
 
     # We'll make a copy of the relevant state, then do the update itself asynchronously.
@@ -665,6 +602,14 @@ class ViserViewer(BaseViewer):
     body_xpos = wp_data.xpos.numpy()  # Shape: (batch_size, nbody, 3)
     body_xmat = wp_data.xmat.numpy()  # Shape: (batch_size, nbody, 3, 3)
 
+    # Get mocap positions and orientations
+    if mj_model.nmocap > 0:
+      mocap_pos = wp_data.mocap_pos.numpy()  # Shape: (batch_size, nmocap, 3)
+      mocap_quat = wp_data.mocap_quat.numpy()  # Shape: (batch_size, nmocap, 4)
+    else:
+      mocap_pos = None
+      mocap_quat = None
+
     # Get contact data if contact visualization is enabled
     # Only visualize contacts for the selected environment to reduce load
     contact_data = None
@@ -676,17 +621,40 @@ class ViserViewer(BaseViewer):
       with self._server.atomic():
         body_xquat = vtf.SO3.from_matrix(body_xmat).wxyz
 
-        # Update both visual and collision handles symmetrically
-        for handles_dict in [self._mesh_visual_handles, self._mesh_collision_handles]:
-          if handles_dict is None:
-            continue  # Handles not created yet
+        # Update mesh handles (organized by body and group)
+        for (body_id, _group_id), handle in self._mesh_handles_by_group.items():
+          # Skip if handle is not visible
+          if not handle.visible:
+            continue
 
-          for body_id, handle in handles_dict.items():
-            # Skip if handle is not visible
-            if not handle.visible:
-              continue
-
-            # Update position and orientation for this body
+          # Check if this is a mocap body
+          mocap_id = mj_model.body_mocapid[body_id]
+          if mocap_id >= 0 and mocap_pos is not None and mocap_quat is not None:
+            # Use mocap pos/quat for mocap bodies
+            if self._show_only_selected_env and self.env.num_envs > 1:
+              single_pos = mocap_pos[self._env_idx, mocap_id, :] + scene_offset
+              # Convert quaternion from xyzw to wxyz format
+              quat_xyzw = mocap_quat[self._env_idx, mocap_id, :]
+              single_quat = np.array(
+                [quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]]
+              )
+              handle.batched_positions = np.tile(
+                single_pos[None, :], (self._batch_size, 1)
+              )
+              handle.batched_wxyzs = np.tile(
+                single_quat[None, :], (self._batch_size, 1)
+              )
+            else:
+              # Convert quaternion from xyzw to wxyz format for all envs
+              quat_xyzw = mocap_quat[:, mocap_id, :]
+              quat_wxyz = np.stack(
+                [quat_xyzw[:, 3], quat_xyzw[:, 0], quat_xyzw[:, 1], quat_xyzw[:, 2]],
+                axis=-1,
+              )
+              handle.batched_positions = mocap_pos[:, mocap_id, :] + scene_offset
+              handle.batched_wxyzs = quat_wxyz
+          else:
+            # Use xpos/xmat for regular bodies
             if self._show_only_selected_env and self.env.num_envs > 1:
               # Show only the selected environment at the origin (0,0,0)
               single_pos = body_xpos[self._env_idx, body_id, :] + scene_offset
@@ -818,7 +786,7 @@ class ViserViewer(BaseViewer):
         all_positions.append(display_pos)
         # Contact frame: first row is normal, need to align cylinder z-axis with normal
         normal = frame[0, :]  # Contact normal (first row of contact frame)
-        contact_rot = self._rotation_matrix_from_vectors(np.array([0, 0, 1]), normal)
+        contact_rot = rotation_matrix_from_vectors(np.array([0, 0, 1]), normal)
         quat = vtf.SO3.from_matrix(contact_rot).wxyz
         all_orientations.append(quat)
         # Use MuJoCo's contact visualization scale
@@ -835,7 +803,7 @@ class ViserViewer(BaseViewer):
 
         # Compute arrow orientation (arrow points in direction of force)
         force_dir = force_world / force_mag
-        force_rot = self._rotation_matrix_from_vectors(np.array([0, 0, 1]), force_dir)
+        force_rot = rotation_matrix_from_vectors(np.array([0, 0, 1]), force_dir)
         force_quat = vtf.SO3.from_matrix(force_rot).wxyz
 
         # Scale arrow by force magnitude
@@ -971,80 +939,3 @@ class ViserViewer(BaseViewer):
     sim = self.env.unwrapped.sim
     assert isinstance(sim, Simulation)
     return sim.mj_model.stat.meansize
-
-  @staticmethod
-  def _rotation_matrix_from_vectors(
-    from_vec: np.ndarray, to_vec: np.ndarray
-  ) -> np.ndarray:
-    """Create rotation matrix that rotates from_vec to to_vec using Rodrigues formula."""
-    if np.allclose(from_vec, to_vec):
-      return np.eye(3)
-    if np.allclose(from_vec, -to_vec):
-      return np.array([[-1, 0, 0], [0, 1, 0], [0, 0, -1]])
-
-    # Rodrigues rotation formula
-    v = np.cross(from_vec, to_vec)
-    s = np.linalg.norm(v)
-    c = np.dot(from_vec, to_vec)
-    vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    return np.eye(3) + vx + vx @ vx * ((1 - c) / (s * s))
-
-  @staticmethod
-  def _create_mesh(mj_model, idx: int) -> trimesh.Trimesh:
-    """
-    Create a trimesh object from a geom in the MuJoCo model.
-    """
-    size = mj_model.geom_size[idx]
-    geom_type = mj_model.geom_type[idx]
-
-    # Get geom RGBA color if available
-    rgba = mj_model.geom_rgba[idx].copy()
-    material = trimesh.visual.material.PBRMaterial(
-      baseColorFactor=rgba,
-      metallicFactor=0.5,
-      roughnessFactor=0.5,
-      emissiveFactor=[0.0, 0.0, 0.0],
-    )
-    if geom_type == mjtGeom.mjGEOM_PLANE:
-      # Create a plane mesh
-      out = trimesh.creation.box((20, 20, 0.01))
-      out.visual = trimesh.visual.TextureVisuals(material=material)
-      return out
-    elif geom_type == mjtGeom.mjGEOM_SPHERE:
-      radius = size[0]
-      out = trimesh.creation.icosphere(radius=radius, subdivisions=2)
-      out.visual = trimesh.visual.TextureVisuals(material=material)
-      return out
-    elif geom_type == mjtGeom.mjGEOM_BOX:
-      dims = 2.0 * size
-      out = trimesh.creation.box(extents=dims)
-      out.visual = trimesh.visual.TextureVisuals(material=material)
-      return out
-    elif geom_type == mjtGeom.mjGEOM_MESH:
-      mesh_id = mj_model.geom_dataid[idx]
-      vert_start = mj_model.mesh_vertadr[mesh_id]
-      vert_count = mj_model.mesh_vertnum[mesh_id]
-      face_start = mj_model.mesh_faceadr[mesh_id]
-      face_count = mj_model.mesh_facenum[mesh_id]
-
-      verts = mj_model.mesh_vert[vert_start : (vert_start + vert_count), :]
-      faces = mj_model.mesh_face[face_start : (face_start + face_count), :]
-
-      mesh = trimesh.Trimesh(vertices=verts, faces=faces)
-      mesh.fill_holes()
-      mesh.fix_normals()
-      mesh.visual = trimesh.visual.TextureVisuals(material=material)
-      return mesh
-
-    elif geom_type == mjtGeom.mjGEOM_CAPSULE:
-      r, half_len = size[0], size[1]
-      out = trimesh.creation.capsule(radius=r, height=2.0 * half_len)
-      out.visual = trimesh.visual.TextureVisuals(material=material)
-      return out
-    elif geom_type == mjtGeom.mjGEOM_CYLINDER:
-      r, half_len = size[0], size[1]
-      out = trimesh.creation.cylinder(radius=r, height=2.0 * half_len)
-      out.visual = trimesh.visual.TextureVisuals(material=material)
-      return out
-    else:
-      raise ValueError(f"Unsupported geom type {geom_type}")

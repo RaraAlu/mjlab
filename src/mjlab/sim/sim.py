@@ -7,6 +7,7 @@ import warp as wp
 
 from mjlab.sim.randomization import expand_model_fields
 from mjlab.sim.sim_data import WarpBridge
+from mjlab.utils.nan_guard import NanGuard, NanGuardCfg
 from mjlab.utils.spec_config import SpecCfg
 
 # Type aliases for better IDE support while maintaining runtime compatibility
@@ -84,9 +85,19 @@ class MujocoCfg(SpecCfg):
 @dataclass(kw_only=True)
 class SimulationCfg:
   nconmax: int | None = None
+  """Number of contacts to allocate per world.
+  
+  Contacts exist in large heterogenous arrays: one world may have more than nconmax
+  contacts. If None, a heuristic value is used."""
   njmax: int | None = None
+  """Number of constraints to allocate per world.
+  
+  Constraint arrays are batched by world: no world may have more than njmax
+  constraints. If None, a heuristic value is used."""
   ls_parallel: bool = True  # Boosts perf quite noticeably.
+  contact_sensor_maxmatch: int = 64
   mujoco: MujocoCfg = field(default_factory=MujocoCfg)
+  nan_guard: NanGuardCfg = field(default_factory=NanGuardCfg)
 
 
 class Simulation:
@@ -107,6 +118,7 @@ class Simulation:
     with wp.ScopedDevice(self.wp_device):
       self._wp_model = mjwarp.put_model(self._mj_model)
       self._wp_model.opt.ls_parallel = cfg.ls_parallel
+      self._wp_model.opt.contact_sensor_maxmatch = cfg.contact_sensor_maxmatch
 
       self._wp_data = mjwarp.put_data(
         self._mj_model,
@@ -123,6 +135,8 @@ class Simulation:
       self.wp_device
     )
     self.create_graph()
+
+    self.nan_guard = NanGuard(cfg.nan_guard, self.num_envs, self._mj_model)
 
   def create_graph(self) -> None:
     self.step_graph = None
@@ -170,10 +184,7 @@ class Simulation:
       raise ValueError(f"Fields not found in model: {invalid_fields}")
 
     expand_model_fields(self._wp_model, self.num_envs, fields)
-
-  def reset(self) -> None:
-    # TODO(kevin): Should we be doing anything here?
-    pass
+    self._model_bridge.clear_cache()
 
   def forward(self) -> None:
     with wp.ScopedDevice(self.wp_device):
@@ -184,10 +195,8 @@ class Simulation:
 
   def step(self) -> None:
     with wp.ScopedDevice(self.wp_device):
-      if self.use_cuda_graph and self.step_graph is not None:
-        wp.capture_launch(self.step_graph)
-      else:
-        mjwarp.step(self.wp_model, self.wp_data)
-
-  def close(self) -> None:
-    pass
+      with self.nan_guard.watch(self.data):
+        if self.use_cuda_graph and self.step_graph is not None:
+          wp.capture_launch(self.step_graph)
+        else:
+          mjwarp.step(self.wp_model, self.wp_data)

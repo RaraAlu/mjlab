@@ -1,5 +1,6 @@
 """Script to play RL agent with RSL-RL."""
 
+import os
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -9,7 +10,6 @@ import gymnasium as gym
 import torch
 import tyro
 from rsl_rl.runners import OnPolicyRunner
-from typing_extensions import assert_never
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
@@ -21,6 +21,10 @@ from mjlab.third_party.isaaclab.isaaclab_tasks.utils.parse_cfg import (
 from mjlab.utils.os import get_wandb_checkpoint_path
 from mjlab.utils.torch import configure_torch_backends
 from mjlab.viewer import NativeMujocoViewer, ViserViewer
+from mjlab.viewer.base import EnvProtocol
+
+ViewerChoice = Literal["auto", "native", "viser"]
+ResolvedViewer = Literal["native", "viser"]
 
 
 @dataclass(frozen=True)
@@ -37,14 +41,24 @@ class PlayConfig:
   video_height: int | None = None
   video_width: int | None = None
   camera: int | str | None = None
-  viewer: Literal["native", "viser"] = "native"
+  viewer: ViewerChoice = "auto"
+
+
+def _resolve_viewer_choice(choice: ViewerChoice) -> ResolvedViewer:
+  """Resolve viewer choice, defaulting to web viewer when no display is present."""
+  if choice != "auto":
+    return cast(ResolvedViewer, choice)
+
+  has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+  resolved: ResolvedViewer = "native" if has_display else "viser"
+  print(f"[INFO]: Auto-selected viewer: {resolved} (display detected: {has_display})")
+  return resolved
 
 
 def run_play(task: str, cfg: PlayConfig):
   configure_torch_backends()
 
   device = cfg.device or ("cuda:0" if torch.cuda.is_available() else "cpu")
-  print(f"[INFO]: Using device: {device}")
 
   env_cfg = cast(
     ManagerBasedRlEnvCfg, load_cfg_from_registry(task, "env_cfg_entry_point")
@@ -99,18 +113,26 @@ def run_play(task: str, cfg: PlayConfig):
   resume_path: Optional[Path] = None
   if TRAINED_MODE:
     log_root_path = (Path("logs") / "rsl_rl" / agent_cfg.experiment_name).resolve()
-    print(f"[INFO]: Loading experiment from: {log_root_path}")
     if cfg.checkpoint_file is not None:
       resume_path = Path(cfg.checkpoint_file)
       if not resume_path.exists():
         raise FileNotFoundError(f"Checkpoint file not found: {resume_path}")
+      print(f"[INFO]: Loading checkpoint: {resume_path.name}")
     else:
       if cfg.wandb_run_path is None:
         raise ValueError(
           "`wandb_run_path` is required when `checkpoint_file` is not provided."
         )
-      resume_path = get_wandb_checkpoint_path(log_root_path, Path(cfg.wandb_run_path))
-    print(f"[INFO]: Loading checkpoint: {resume_path}")
+      resume_path, was_cached = get_wandb_checkpoint_path(
+        log_root_path, Path(cfg.wandb_run_path)
+      )
+      # Extract run_id and checkpoint name from path for display
+      run_id = resume_path.parent.name
+      checkpoint_name = resume_path.name
+      cached_str = "cached" if was_cached else "downloaded"
+      print(
+        f"[INFO]: Loading checkpoint: {checkpoint_name} (run: {run_id}, {cached_str})"
+      )
     log_dir = resume_path.parent
 
   if cfg.num_envs is not None:
@@ -168,12 +190,14 @@ def run_play(task: str, cfg: PlayConfig):
     runner.load(str(resume_path), map_location=device)
     policy = runner.get_inference_policy(device=device)
 
-  if cfg.viewer == "native":
-    NativeMujocoViewer(env, policy).run()
-  elif cfg.viewer == "viser":
-    ViserViewer(env, policy).run()
+  resolved_viewer = _resolve_viewer_choice(cfg.viewer)
+
+  if resolved_viewer == "native":
+    NativeMujocoViewer(cast(EnvProtocol, env), policy).run()
+  elif resolved_viewer == "viser":
+    ViserViewer(cast(EnvProtocol, env), policy).run()
   else:
-    assert_never(cfg.viewer)
+    raise RuntimeError(f"Unsupported viewer backend: {resolved_viewer}")
 
   env.close()
 

@@ -12,6 +12,7 @@ import viser.transforms as vtf
 from typing_extensions import override
 
 from mjlab.viewer.debug_visualizer import DebugVisualizer
+from mjlab.viewer.viser_conversions import get_body_name, rotation_quat_from_vectors
 
 
 class ViserDebugVisualizer(DebugVisualizer):
@@ -77,6 +78,7 @@ class ViserDebugVisualizer(DebugVisualizer):
     Arrows are not rendered immediately but queued and rendered together
     in the next _synchronize() call for efficiency.
     """
+    del label  # Unused.
     if isinstance(start, torch.Tensor):
       start = start.cpu().numpy()
     if isinstance(end, torch.Tensor):
@@ -175,8 +177,8 @@ class ViserDebugVisualizer(DebugVisualizer):
         else:
           combined_mesh = self._ghost_meshes[model_hash][body_id]
 
-        body_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body_id)
-        handle_name = f"/debug/env_{self.env_idx}/ghost/body_{body_name or body_id}"
+        body_name = get_body_name(model, body_id)
+        handle_name = f"/debug/env_{self.env_idx}/ghost/body_{body_name}"
 
         # Extract color from geom (convert RGBA 0-1 to RGB 0-255)
         rgba = model.geom_rgba[geom_indices[0]].copy()
@@ -209,34 +211,17 @@ class ViserDebugVisualizer(DebugVisualizer):
     """
     from mujoco import mjtGeom
 
-    from mjlab.viewer.viser_conversions import mujoco_mesh_to_trimesh
-
-    geom_type = mj_model.geom_type[geom_id]
-    size = mj_model.geom_size[geom_id]
-    rgba = mj_model.geom_rgba[geom_id].copy()
-
-    material = trimesh.visual.material.PBRMaterial(
-      baseColorFactor=rgba,
-      metallicFactor=0.5,
-      roughnessFactor=0.5,
+    from mjlab.viewer.viser_conversions import (
+      create_primitive_mesh,
+      mujoco_mesh_to_trimesh,
     )
 
-    if geom_type == mjtGeom.mjGEOM_SPHERE:
-      mesh = trimesh.creation.icosphere(radius=size[0], subdivisions=2)
-    elif geom_type == mjtGeom.mjGEOM_BOX:
-      dims = 2.0 * size
-      mesh = trimesh.creation.box(extents=dims)
-    elif geom_type == mjtGeom.mjGEOM_CAPSULE:
-      mesh = trimesh.creation.capsule(radius=size[0], height=2.0 * size[1])
-    elif geom_type == mjtGeom.mjGEOM_CYLINDER:
-      mesh = trimesh.creation.cylinder(radius=size[0], height=2.0 * size[1])
-    elif geom_type == mjtGeom.mjGEOM_MESH:
-      mesh = mujoco_mesh_to_trimesh(mj_model, geom_id, verbose=False)
-    else:
-      return None
+    geom_type = mj_model.geom_type[geom_id]
 
-    mesh.visual = trimesh.visual.TextureVisuals(material=material)
-    return mesh
+    if geom_type == mjtGeom.mjGEOM_MESH:
+      return mujoco_mesh_to_trimesh(mj_model, geom_id, verbose=False)
+    else:
+      return create_primitive_mesh(mj_model, geom_id)
 
   def _sync_arrows(self) -> None:
     """Render all queued arrows using batched meshes.
@@ -261,8 +246,8 @@ class ViserDebugVisualizer(DebugVisualizer):
       self._arrow_shaft_mesh.apply_translation(np.array([0, 0, 0.5]))  # Center at z=0.5
 
     if self._arrow_head_mesh is None:
-      # Unit cone: radius=3.0, height=1.0 (base at z=0, tip at z=1.0 by default)
-      head_width = 3.0
+      # Unit cone: radius=2.0, height=1.0 (base at z=0, tip at z=1.0 by default)
+      head_width = 2.0
       self._arrow_head_mesh = trimesh.creation.cone(radius=head_width, height=1.0)
       # No translation needed - cone already has base at z=0
 
@@ -287,16 +272,14 @@ class ViserDebugVisualizer(DebugVisualizer):
       length = np.linalg.norm(direction)
       direction = direction / length
 
-      rotation_quat = self._rotation_quat_from_vectors(z_axis, direction)
+      rotation_quat = rotation_quat_from_vectors(z_axis, direction)
 
       # Shaft: scale width in XY, length in Z
       shaft_length = shaft_length_ratio * length
       shaft_positions[i] = start
       shaft_wxyzs[i] = rotation_quat
       shaft_scales[i] = [width, width, shaft_length]  # Per-axis scale
-      shaft_colors[i] = (np.array(color[:3]) * 255).astype(
-        np.uint8
-      )  # Convert 0-1 to 0-255
+      shaft_colors[i] = (np.array(color[:3]) * 255).astype(np.uint8)
 
       # Head: position at end of shaft
       # The cone has its base at z=0, so after scaling by head_length,
@@ -307,9 +290,7 @@ class ViserDebugVisualizer(DebugVisualizer):
       head_positions[i] = head_position
       head_wxyzs[i] = rotation_quat
       head_scales[i] = [width, width, head_length]  # Per-axis scale
-      head_colors[i] = (np.array(color[:3]) * 255).astype(
-        np.uint8
-      )  # Convert 0-1 to 0-255
+      head_colors[i] = (np.array(color[:3]) * 255).astype(np.uint8)
 
     # Check if we need to recreate handles (number of arrows changed)
     needs_recreation = (
@@ -334,7 +315,6 @@ class ViserDebugVisualizer(DebugVisualizer):
         batched_positions=shaft_positions,
         batched_scales=shaft_scales,
         batched_colors=shaft_colors,
-        opacity=0.5,
         cast_shadow=False,
         receive_shadow=False,
       )
@@ -347,7 +327,6 @@ class ViserDebugVisualizer(DebugVisualizer):
         batched_positions=head_positions,
         batched_scales=head_scales,
         batched_colors=head_colors,
-        opacity=0.5,
         cast_shadow=False,
         receive_shadow=False,
       )
@@ -365,6 +344,55 @@ class ViserDebugVisualizer(DebugVisualizer):
       self._arrow_head_handle.batched_wxyzs = head_wxyzs
       self._arrow_head_handle.batched_scales = head_scales
       self._arrow_head_handle.batched_colors = head_colors
+
+  @override
+  def add_frame(
+    self,
+    position: np.ndarray | torch.Tensor,
+    rotation_matrix: np.ndarray | torch.Tensor,
+    scale: float = 0.3,
+    label: str | None = None,
+    axis_radius: float = 0.01,
+    alpha: float = 1.0,
+    axis_colors: tuple[tuple[float, float, float], ...] | None = None,
+  ) -> None:
+    """Add a coordinate frame visualization with RGB-colored axes.
+
+    This implementation reuses add_arrow to draw the three axis arrows.
+
+    Args:
+      position: Position of the frame origin (3D vector)
+      rotation_matrix: Rotation matrix (3x3)
+      scale: Scale/length of the axis arrows
+      label: Optional label for this frame.
+      axis_radius: Radius of the axis arrows.
+      alpha: Opacity for all axes (0=transparent, 1=opaque). Note: This implementation
+        does not support per-arrow transparency. All arrows in the scene will share
+        the same alpha value.
+      axis_colors: Optional tuple of 3 RGB colors for X, Y, Z axes. If None, uses
+        default RGB coloring (X=red, Y=green, Z=blue).
+    """
+    del label  # Unused.
+
+    if isinstance(position, torch.Tensor):
+      position = position.cpu().numpy()
+    if isinstance(rotation_matrix, torch.Tensor):
+      rotation_matrix = rotation_matrix.cpu().numpy()
+
+    default_colors = [(0.9, 0, 0), (0, 0.9, 0.0), (0.0, 0.0, 0.9)]
+    colors = axis_colors if axis_colors is not None else default_colors
+
+    for axis_idx in range(3):
+      axis_direction = rotation_matrix[:, axis_idx]
+      end_position = position + axis_direction * scale
+      rgb = colors[axis_idx]
+      color_rgba = (rgb[0], rgb[1], rgb[2], alpha)
+      self.add_arrow(
+        start=position,
+        end=end_position,
+        color=color_rgba,
+        width=axis_radius,
+      )
 
   @override
   def clear(self) -> None:
@@ -394,34 +422,6 @@ class ViserDebugVisualizer(DebugVisualizer):
     for handle in self._ghost_handles.values():
       handle.remove()
     self._ghost_handles.clear()
-
-  @staticmethod
-  def _rotation_quat_from_vectors(
-    from_vec: np.ndarray, to_vec: np.ndarray
-  ) -> np.ndarray:
-    """Compute quaternion (wxyz) that rotates from_vec to to_vec."""
-    from_vec = from_vec / np.linalg.norm(from_vec)
-    to_vec = to_vec / np.linalg.norm(to_vec)
-
-    if np.allclose(from_vec, to_vec):
-      return np.array([1.0, 0.0, 0.0, 0.0])
-
-    if np.allclose(from_vec, -to_vec):
-      # 180 degree rotation - pick arbitrary perpendicular axis
-      perp = np.array([1.0, 0.0, 0.0])
-      if abs(from_vec[0]) > 0.9:
-        perp = np.array([0.0, 1.0, 0.0])
-      axis = np.cross(from_vec, perp)
-      axis = axis / np.linalg.norm(axis)
-      return np.array([0.0, axis[0], axis[1], axis[2]])  # wxyz for 180 deg
-
-    # Standard quaternion from two vectors
-    cross = np.cross(from_vec, to_vec)
-    dot = np.dot(from_vec, to_vec)
-    w = 1.0 + dot
-    quat = np.array([w, cross[0], cross[1], cross[2]])
-    quat = quat / np.linalg.norm(quat)
-    return quat
 
   @staticmethod
   def _mat_to_quat(mat: np.ndarray) -> np.ndarray:
