@@ -67,7 +67,7 @@ class AgibotX1RoughEnvCfg(LocomotionVelocityEnvCfg):
     }
 
     self.viewer.body_name = "torso_link"
-    self.commands.twist.viz.z_offset = 0.75
+    self.commands.twist.viz.z_offset = 1.0
 
     self.curriculum.command_vel = None
     
