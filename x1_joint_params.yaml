@@ -1,0 +1,100 @@
+waist_yaw_joint:
+  stiffness: 59.217626
+  damping: 3.769911
+  action_scale: 0.3377372788
+waist_roll_joint:
+  stiffness: 59.217626
+  damping: 3.769911
+  action_scale: 0.3377372788
+waist_pitch_joint:
+  stiffness: 59.217626
+  damping: 3.769911
+  action_scale: 0.3377372788
+left_shoulder_pitch_joint:
+  stiffness: 59.217626
+  damping: 3.769911
+  action_scale: 0.3377372788
+left_shoulder_roll_joint:
+  stiffness: 59.217626
+  damping: 3.769911
+  action_scale: 0.3377372788
+left_shoulder_yaw_joint:
+  stiffness: 13.817446
+  damping: 0.879646
+  action_scale: 0.3437683016
+left_elbow_pitch_joint:
+  stiffness: 13.817446
+  damping: 0.879646
+  action_scale: 0.3437683016
+left_elbow_yaw_joint:
+  stiffness: 13.817446
+  damping: 0.879646
+  action_scale: 0.3437683016
+right_shoulder_pitch_joint:
+  stiffness: 59.217626
+  damping: 3.769911
+  action_scale: 0.3377372788
+right_shoulder_roll_joint:
+  stiffness: 59.217626
+  damping: 3.769911
+  action_scale: 0.3377372788
+right_shoulder_yaw_joint:
+  stiffness: 13.817446
+  damping: 0.879646
+  action_scale: 0.3437683016
+right_elbow_pitch_joint:
+  stiffness: 13.817446
+  damping: 0.879646
+  action_scale: 0.3437683016
+right_elbow_yaw_joint:
+  stiffness: 13.817446
+  damping: 0.879646
+  action_scale: 0.3437683016
+left_hip_pitch_joint:
+  stiffness: 296.088132
+  damping: 18.849556
+  action_scale: 0.1688686394
+left_hip_roll_joint:
+  stiffness: 296.088132
+  damping: 18.849556
+  action_scale: 0.1688686394
+left_hip_yaw_joint:
+  stiffness: 59.217626
+  damping: 3.769911
+  action_scale: 0.3377372788
+left_knee_pitch_joint:
+  stiffness: 296.088132
+  damping: 18.849556
+  action_scale: 0.1688686394
+left_ankle_pitch_joint:
+  stiffness: 13.817446
+  damping: 0.879646
+  action_scale: 0.3437683016
+left_ankle_roll_joint:
+  stiffness: 13.817446
+  damping: 0.879646
+  action_scale: 0.3437683016
+right_hip_pitch_joint:
+  stiffness: 296.088132
+  damping: 18.849556
+  action_scale: 0.1688686394
+right_hip_roll_joint:
+  stiffness: 296.088132
+  damping: 18.849556
+  action_scale: 0.1688686394
+right_hip_yaw_joint:
+  stiffness: 59.217626
+  damping: 3.769911
+  action_scale: 0.3377372788
+right_knee_pitch_joint:
+  stiffness: 296.088132
+  damping: 18.849556
+  action_scale: 0.1688686394
+right_ankle_pitch_joint:
+  stiffness: 13.817446
+  damping: 0.879646
+  action_scale: 0.3437683016
+right_ankle_roll_joint:
+  stiffness: 13.817446
+  damping: 0.879646
+  action_scale: 0.3437683016

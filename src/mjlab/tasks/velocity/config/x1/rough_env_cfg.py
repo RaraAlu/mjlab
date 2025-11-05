@@ -132,6 +132,9 @@ class AgibotX1RoughEnvCfg(LocomotionVelocityEnvCfg):
 
     self.viewer.body_name = "torso_link"
     self.commands.twist.viz.z_offset = 1.15
+    
+    # self.sim.mujoco.timestep = 0.001  # 1000hz
+    # self.decimation = 10 # 100hz
 
 
 @dataclass
