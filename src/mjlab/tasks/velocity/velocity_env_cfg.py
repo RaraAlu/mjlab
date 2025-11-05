@@ -210,7 +210,7 @@ class RewardCfg:
   track_angular_velocity: RewardTerm = term(
     RewardTerm,
     func=mdp.track_angular_velocity,
-    weight=2.0,
+    weight=1.5,
     params={"command_name": "twist", "std": math.sqrt(0.5)},
   )
   upright: RewardTerm = term(
@@ -347,7 +347,7 @@ class CurriculumCfg:
     CurrTerm, func=mdp.terrain_levels_vel, params={"command_name": "twist"}
   )
 
-  command_vel: CurrTerm | None = term(
+  command_vel: CurrTerm = term(
     CurrTerm,
     func=mdp.commands_vel,
     params={
@@ -360,7 +360,7 @@ class CurriculumCfg:
     },
   )
 
-  soft_landing_weight: CurrTerm | None = term(
+  soft_landing_weight: CurrTerm = term(
     CurrTerm,
     func=mdp.reward_weight,
     params={

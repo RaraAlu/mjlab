@@ -108,6 +108,22 @@ class AgibotX1RoughEnvCfg(LocomotionVelocityEnvCfg):
     self.rewards.foot_clearance.params["target_height"] = target_foot_height
     self.rewards.body_ang_vel.params["asset_cfg"].body_names = ["torso_link"]
 
+    # curriculum
+    weight_stages = [
+        {"step": 0, "weight": -1e-5},
+        {"step": 10000 * 24, "weight": -1e-3},
+        {"step": 20000 * 24, "weight": -0.02},
+      ]
+    
+    twist_stages = [
+        {"step": 0, "lin_vel_x": (-1.0, 1.0), "ang_vel_z": (-0.8, 0.8)},
+        # {"step": 10000 * 24, "lin_vel_x": (-1.5, 2.0), "ang_vel_z": (-0.7, 0.7)},
+        # {"step": 20000 * 24, "lin_vel_x": (-2.0, 3.0)},
+    ]
+
+    self.curriculum.soft_landing_weight.params["weight_stages"] = weight_stages
+    self.curriculum.command_vel.params["velocity_stages"] = twist_stages
+
     # Observations.
     self.observations.critic.foot_height.params["asset_cfg"].site_names = site_names
 

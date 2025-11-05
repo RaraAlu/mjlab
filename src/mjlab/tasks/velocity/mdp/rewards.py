@@ -20,24 +20,24 @@ if TYPE_CHECKING:
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
 
-def track_linear_velocity(
-  env: ManagerBasedRlEnv,
-  std: float,
-  command_name: str,
-  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> torch.Tensor:
-  """Reward for tracking the commanded base linear velocity.
+# def track_linear_velocity(
+#   env: ManagerBasedRlEnv,
+#   std: float,
+#   command_name: str,
+#   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+# ) -> torch.Tensor:
+#   """Reward for tracking the commanded base linear velocity.
 
-  The commanded z velocity is assumed to be zero.
-  """
-  asset: Entity = env.scene[asset_cfg.name]
-  command = env.command_manager.get_command(command_name)
-  assert command is not None, f"Command '{command_name}' not found."
-  actual = asset.data.root_link_lin_vel_b
-  xy_error = torch.sum(torch.square(command[:, :2] - actual[:, :2]), dim=1)
-  z_error = torch.square(actual[:, 2])
-  lin_vel_error = xy_error + z_error
-  return torch.exp(-lin_vel_error / std**2)
+#   The commanded z velocity is assumed to be zero.
+#   """
+#   asset: Entity = env.scene[asset_cfg.name]
+#   command = env.command_manager.get_command(command_name)
+#   assert command is not None, f"Command '{command_name}' not found."
+#   actual = asset.data.root_link_lin_vel_b
+#   xy_error = torch.sum(torch.square(command[:, :2] - actual[:, :2]), dim=1)
+#   z_error = torch.square(actual[:, 2])
+#   lin_vel_error = xy_error + z_error
+#   return torch.exp(-lin_vel_error / std**2)
 
 
 def track_angular_velocity(
@@ -60,6 +60,72 @@ def track_angular_velocity(
   return torch.exp(-ang_vel_error / std**2)
 
 
+def track_linear_velocity(
+  env: ManagerBasedRlEnv,
+  std: float,
+  command_name: str,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward for tracking the commanded base linear velocity.
+
+  The commanded z velocity is assumed to be zero. Uses exponential kernel
+  to provide smooth reward signal based on velocity tracking error.
+
+  Args:
+    env: The RL environment
+    std: Standard deviation for the exponential kernel
+    command_name: Name of the velocity command to track
+    asset_cfg: Asset configuration specifying which robot to track
+
+  Returns:
+    Reward tensor of shape [num_envs]
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+  command = env.command_manager.get_command(command_name)
+  assert command is not None, f"Command '{command_name}' not found."
+
+  # Get actual velocity in base frame
+  actual = asset.data.root_link_lin_vel_b  # [num_envs, 3]
+
+  # Construct desired velocity (xy from command, z = 0)
+  desired = torch.zeros_like(actual)
+  desired[:, :2] = command[:, :2]
+
+  # Compute tracking error
+  lin_vel_error = torch.sum(torch.square(desired - actual), dim=1)
+
+  # Apply exponential kernel
+  return torch.exp(-lin_vel_error / std**2)
+
+
+# def track_angular_velocity(
+#   env: ManagerBasedRlEnv,
+#   std: float,
+#   command_name: str,
+#   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+# ) -> torch.Tensor:
+#   """Reward for tracking the commanded angular velocity (yaw).
+
+#   The commanded xy angular velocities are assumed to be zero.
+#   """
+#   asset: Entity = env.scene[asset_cfg.name]
+#   command = env.command_manager.get_command(command_name)
+#   assert command is not None, f"Command '{command_name}' not found."
+
+#   # Get actual angular velocity in base frame
+#   actual = asset.data.root_link_ang_vel_b  # [num_envs, 3]
+
+#   # Construct desired angular velocity (xy = 0, z from command)
+#   desired = torch.zeros_like(actual)
+#   desired[:, 2] = command[:, 2]
+
+#   # Compute tracking error
+#   ang_vel_error = torch.sum(torch.square(desired - actual), dim=1)
+
+#   # Apply exponential kernel
+#   return torch.exp(-ang_vel_error / std**2)
+
+
 def flat_orientation(
   env: ManagerBasedRlEnv,
   std: float,
@@ -74,14 +140,16 @@ def flat_orientation(
 
   # If body_ids are specified, compute projected gravity for that body.
   if asset_cfg.body_ids:
-    body_quat_w = asset.data.body_link_quat_w[:, asset_cfg.body_ids, :]  # [B, N, 4]
+    # [B, N, 4]
+    body_quat_w = asset.data.body_link_quat_w[:, asset_cfg.body_ids, :]
     body_quat_w = body_quat_w.squeeze(1)  # [B, 4]
     gravity_w = asset.data.gravity_vec_w  # [3]
     projected_gravity_b = quat_apply_inverse(body_quat_w, gravity_w)  # [B, 3]
     xy_squared = torch.sum(torch.square(projected_gravity_b[:, :2]), dim=1)
   else:
     # Use root link projected gravity.
-    xy_squared = torch.sum(torch.square(asset.data.projected_gravity_b[:, :2]), dim=1)
+    xy_squared = torch.sum(torch.square(
+      asset.data.projected_gravity_b[:, :2]), dim=1)
   return torch.exp(-xy_squared / std**2)
 
 
@@ -116,7 +184,8 @@ def angular_momentum_penalty(
   angmom = angmom_sensor.data
   angmom_magnitude_sq = torch.sum(torch.square(angmom), dim=-1)
   angmom_magnitude = torch.sqrt(angmom_magnitude_sq)
-  env.extras["log"]["Metrics/angular_momentum_mean"] = torch.mean(angmom_magnitude)
+  env.extras["log"]["Metrics/angular_momentum_mean"] = torch.mean(
+    angmom_magnitude)
   return angmom_magnitude_sq
 
 
@@ -133,7 +202,8 @@ def feet_air_time(
   sensor_data = sensor.data
   current_air_time = sensor_data.current_air_time
   assert current_air_time is not None
-  in_range = (current_air_time > threshold_min) & (current_air_time < threshold_max)
+  in_range = (current_air_time > threshold_min) & (
+    current_air_time < threshold_max)
   reward = torch.sum(in_range.float(), dim=1)
   in_air = current_air_time > 0
   num_in_air = torch.sum(in_air.float())
@@ -162,7 +232,8 @@ def feet_clearance(
   """Penalize deviation from target clearance height, weighted by foot velocity."""
   asset: Entity = env.scene[asset_cfg.name]
   foot_z = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]  # [B, N]
-  foot_vel_xy = asset.data.site_lin_vel_w[:, asset_cfg.site_ids, :2]  # [B, N, 2]
+  foot_vel_xy = asset.data.site_lin_vel_w[:,
+    asset_cfg.site_ids, :2]  # [B, N, 2]
   vel_norm = torch.norm(foot_vel_xy, dim=-1)  # [B, N]
   delta = torch.abs(foot_z - target_height)  # [B, N]
   cost = torch.sum(delta * vel_norm, dim=1)  # [B]
@@ -214,7 +285,8 @@ class feet_swing_height:
     total_command = linear_norm + angular_norm
     active = (total_command > command_threshold).float()
     error = self.peak_heights / target_height - 1.0
-    cost = torch.sum(torch.square(error) * first_contact.float(), dim=1) * active
+    cost = torch.sum(torch.square(error) *
+                     first_contact.float(), dim=1) * active
     num_landings = torch.sum(first_contact.float())
     peak_heights_at_landing = self.peak_heights * first_contact.float()
     mean_peak_height = torch.sum(peak_heights_at_landing) / torch.clamp(
@@ -247,7 +319,8 @@ def feet_slip(
   active = (total_command > command_threshold).float()
   assert contact_sensor.data.found is not None
   in_contact = (contact_sensor.data.found > 0).float()  # [B, N]
-  foot_vel_xy = asset.data.site_lin_vel_w[:, asset_cfg.site_ids, :2]  # [B, N, 2]
+  foot_vel_xy = asset.data.site_lin_vel_w[:,
+    asset_cfg.site_ids, :2]  # [B, N, 2]
   vel_xy_norm = torch.norm(foot_vel_xy, dim=-1)  # [B, N]
   vel_xy_norm_sq = torch.square(vel_xy_norm)  # [B, N]
   cost = torch.sum(vel_xy_norm_sq * in_contact, dim=1) * active
@@ -271,11 +344,13 @@ def soft_landing(
   assert sensor_data.force is not None
   forces = sensor_data.force  # [B, N, 3]
   force_magnitude = torch.norm(forces, dim=-1)  # [B, N]
-  first_contact = contact_sensor.compute_first_contact(dt=env.step_dt)  # [B, N]
+  first_contact = contact_sensor.compute_first_contact(
+    dt=env.step_dt)  # [B, N]
   landing_impact = force_magnitude * first_contact.float()  # [B, N]
   cost = torch.sum(landing_impact, dim=1)  # [B]
   num_landings = torch.sum(first_contact.float())
-  mean_landing_force = torch.sum(landing_impact) / torch.clamp(num_landings, min=1)
+  mean_landing_force = torch.sum(
+    landing_impact) / torch.clamp(num_landings, min=1)
   env.extras["log"]["Metrics/landing_force_mean"] = mean_landing_force
   if command_name is not None:
     command = env.command_manager.get_command(command_name)
@@ -311,13 +386,15 @@ class variable_posture:
       data=cfg.params["std_walking"],
       list_of_strings=joint_names,
     )
-    self.std_walking = torch.tensor(std_walking, device=env.device, dtype=torch.float32)
+    self.std_walking = torch.tensor(
+      std_walking, device=env.device, dtype=torch.float32)
 
     _, _, std_running = resolve_matching_names_values(
       data=cfg.params["std_running"],
       list_of_strings=joint_names,
     )
-    self.std_running = torch.tensor(std_running, device=env.device, dtype=torch.float32)
+    self.std_running = torch.tensor(
+      std_running, device=env.device, dtype=torch.float32)
 
   def __call__(
     self,
