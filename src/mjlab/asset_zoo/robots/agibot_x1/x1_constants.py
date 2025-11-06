@@ -81,7 +81,7 @@ DAMPING_RATIO = 2.0
 # 峰值速度：85 rpm（8.90 rad/s）
 
 # 电机电枢惯量（估算值），用于计算系统的响应特性
-ARMATURE_R86_3 = 0.075
+ARMATURE_R86_3 = 0.022
 # 电机速度限制，转换为 rad/s
 VELOCITY_LIMIT_R86_3 = 85.0 * RPM_TO_RADS
 # 电机扭矩限制（最大输出扭矩）

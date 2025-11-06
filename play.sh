@@ -6,7 +6,7 @@
     # --agent joystick \
     # --viewer viser
 uv run python -m mjlab.scripts.play_joystick Mjlab-Velocity-Flat-Agibot-X1-Play \
-    --checkpoint-file ~/Work/mjlab/logs/rsl_rl/x1_velocity/2025-11-05_08-58-02/model_3050.pt \
+    --checkpoint-file ~/Work/mjlab/logs/rsl_rl/x1_velocity/2025-11-05_16-03-23/model_11800.pt \
     --num-envs 1 \
     --agent joystick \
     # --viewer viser
